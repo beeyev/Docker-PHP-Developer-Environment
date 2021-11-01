@@ -1,0 +1,1 @@
+This file and public dir has to bee deleted before deployment your code.

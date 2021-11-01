@@ -1,0 +1,11 @@
+!.gitkeep
+.env
+/.idea
+/.vscode
+/compose/etc/backups/**
+!/compose/etc/backups/readme.md
+/logs/**
+!/logs/Readme.md
+/sources/**
+!/sources/app1/DELETEME.MD
+!/sources/app2/DELETEME.MD

@@ -1,0 +1,273 @@
+# https://github.com/docker-mate/docker-mate
+# https://github.com/alcohol/pastebin-php
+
+services:
+  php:
+    container_name: dev_php
+    build:
+      context: ./compose/php
+    tty: true
+    extra_hosts:
+      #required for xdebug
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+    environment:
+      - TZ=${ENV_TZ}
+      - COMPOSE_CONVERT_WINDOWS_PATHS=1
+    volumes:
+      - ./sources/:/var/www/
+      - ./compose/php/config/php.ini:/usr/local/etc/php/php.ini:ro
+      - ./compose/php/config/conf.d/zzz_php_custom.ini:/usr/local/etc/php/conf.d/zzz_php_custom.ini:ro
+      - ./compose/php/config/php-fpm.d/zzz-php-fpm_custom.conf:/usr/local/etc/php-fpm.d/zzz-php-fpm_custom.conf:ro
+      - ./logs/php/:/var/log/php/
+      - ./compose/etc/hello-msg.sh:/etc/hello-msg.sh:ro
+    depends_on:
+      - dozzle
+      - postgres
+    networks:
+      - dev_network1
+
+  nginx:
+    container_name: dev_nginx
+    build:
+      context: ./compose/nginx
+    restart: unless-stopped
+    environment:
+      - TZ=${ENV_TZ}
+    ports:
+      - "80:80"
+    volumes:
+      - ./sources/:/var/www/:ro
+      - ./compose/nginx/config/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./compose/nginx/config/default.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./compose/etc/hello-msg.sh:/etc/hello-msg.sh:ro
+    depends_on:
+      - php
+    networks:
+      - dev_network1
+
+  postgres:
+    container_name: dev_postgres
+    build:
+      context: ./compose/postgres
+    restart: unless-stopped
+    tty: true
+    command: postgres -c config_file=/etc/postgresql/postgresql.conf
+    ports:
+      - "5432:5432"
+    environment:
+      - TZ=${ENV_TZ}
+      - POSTGRES_PASSWORD=${ENV_POSTGRES_PASSWORD} #Default password for user is: postgres
+    volumes:
+      - ./compose/postgres/config/postgresql-compose.conf:/etc/postgresql/postgresql.conf:ro
+      - ./compose/etc/backups/:/var/backups/
+      - ./compose/etc/hello-msg.sh:/etc/hello-msg.sh:ro
+      - dev_postgres_data=/var/lib/postgresql/data/pgdata/
+    networks:
+      - dev_network1
+
+  #@see https://www.pgadmin.org/docs/pgadmin4/latest/container_deployment.html
+  pgadmin:
+    container_name: dev_pgadmin
+    image: dpage/pgadmin4:latest
+    environment:
+      - PGADMIN_DEFAULT_EMAIL=${ENV_PGADMIN_EMAIL}
+      - PGADMIN_DEFAULT_PASSWORD=${ENV_PGADMIN_PASSWORD}
+      - PGADMIN_CONFIG_LOGIN_BANNER='login ${ENV_PGADMIN_EMAIL} <br>password ${ENV_PGADMIN_PASSWORD}'
+      - PGADMIN_CONFIG_MAX_LOGIN_ATTEMPTS=0
+      - PGADMIN_CONFIG_SESSION_EXPIRATION_TIME=100
+      - TZ=${ENV_TZ}
+    restart: unless-stopped
+    volumes:
+      - ./compose/pgadmin/servers.json:/pgadmin4/servers.json
+    tty: true
+    depends_on:
+      - postgres
+    ports:
+      - "5050:80"
+    networks:
+      - dev_network1
+
+  redis:
+    container_name: dev_redis
+    image: redis:6.2-alpine
+    restart: unless-stopped
+    tty: true
+    environment:
+      - TZ=${ENV_TZ}
+    ports:
+      - "6379:6379"
+    volumes:
+      - ./compose/etc/backups/:/var/backups/
+      - dev_redis_data:/data/
+    networks:
+      - dev_network1
+
+  rediscommander:
+    container_name: dev_rediscommander
+    image: rediscommander/redis-commander:latest
+    restart: unless-stopped
+    tty: true
+    environment:
+      - REDIS_HOST=redis
+      - TZ=${ENV_TZ}
+    ports:
+      - "8081:8081"
+    networks:
+      - dev_network1
+    depends_on:
+      - redis
+
+  #@see https://github.com/mailhog/MailHog/blob/master/docs/CONFIG.md
+  mailhog:
+    container_name: dev_mailhog
+    image: ajoergensen/mailhog:latest
+    restart: unless-stopped
+    environment:
+      - TZ=${ENV_TZ}
+    ports:
+      - "8025:8025" #HTTP UI port
+      - "1025:1025" #SMTP port
+    networks:
+      - dev_network1
+    depends_on:
+      - php
+
+  dozzle:
+    container_name: dev_dozzle
+    image: amir20/dozzle:latest
+    restart: unless-stopped
+    environment:
+      - TZ=${ENV_TZ}
+    command: |-
+      --no-analytics
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    ports:
+      - "9999:8080"
+    networks:
+      - dev_network1
+
+
+  yacht:
+    container_name: dev_yacht
+    image: selfhostedpro/yacht:latest
+    restart: unless-stopped
+    environment:
+      - TZ=${ENV_TZ}
+      - DISABLE_AUTH=true
+    ports:
+      - "19000:8000"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - dev_yacht:/config
+    networks:
+      - dev_network1
+
+#  portainer:
+#    container_name: dev_portainer
+#    image: portainer/portainer-ce:alpine
+#    restart: unless-stopped
+#    environment:
+#      - TZ=${ENV_TZ}
+#    command: |-
+#      -H unix:///var/run/docker.sock
+#      --admin-password-file /tmp/portainer_admin_password.txt
+#    ports:
+#      - "19000:9000"
+#    volumes:
+#      - /var/run/docker.sock:/var/run/docker.sock
+#      - ./compose/portainer/portainer_admin_password.txt:/tmp/portainer_admin_password.txt
+#      - dev_portainer_data:/data/
+#    networks:
+#      - dev_network1
+
+#  nodejs:
+#    container_name: dev_nodejs
+#    build:
+#      context: ./compose/nodejs
+#    restart: unless-stopped
+#    tty: true
+#    environment:
+#      - TZ=${ENV_TZ}
+#      - NODE_ENV=development
+#      - NPM_CONFIG_LOGLEVEL=warn
+#    volumes:
+#      - ./sources/:/var/www/
+#      - ./compose/etc/hello-msg.sh:/etc/hello-msg.sh:ro
+#    working_dir: /var/www/
+#    networks:
+#      - dev_network1
+
+#  rabbitmq:
+#    container_name: dev_rabbitmq
+#    build:
+#      context: ./compose/rabbitmq
+#    restart: unless-stopped
+#    environment:
+#      - RABBITMQ_DEFAULT_VHOST=vhost1
+#      - RABBITMQ_DEFAULT_USER=${ENV_RABBITMQ_USER}
+#      - RABBITMQ_DEFAULT_PASS=${ENV_RABBITMQ_PASS}
+#      - TZ=${ENV_TZ}
+#    volumes:
+#      - dev_rabbitmq_data:/var/lib/rabbitmq/
+#    ports:
+#      - "5672:5672"
+#      - "15672:15672"
+#    networks:
+#      - dev_network1
+
+#  mysql:
+#    container_name: dev_mysql
+#    build:
+#      context: ./compose/mysql
+#    restart: unless-stopped
+#    tty: true
+#    ports:
+#      - "3306:3306"
+#    environment:
+#      - MYSQL_ALLOW_EMPTY_PASSWORD=yes
+#      - TZ=${ENV_TZ}
+#    volumes:
+#      - ./compose/mysql/config/mysql.cnf:/etc/mysql/conf.d/mysql.cnf:ro
+#      - ./compose/etc/backups/:/var/backups/
+#      - ./logs/mysql/:/var/log/mysql/
+#      - ./compose/etc/hello-msg.sh:/etc/hello-msg.sh:ro
+#      - dev_mysql_data:/var/lib/mysql/
+#    networks:
+#      - dev_network1
+
+#  phpmyadmin:
+#    container_name: dev_phpmyadmin
+#    image: phpmyadmin/phpmyadmin:latest
+#    environment:
+#      - PMA_USER=root
+#      - PMA_HOST=mysql
+#      - PMA_PORT=3306
+#      - PMA_ARBITRARY=1
+#      - UPLOAD_LIMIT=400M
+##      - MAX_EXECUTION_TIME=1200 #maximum execution time in seconds  (default 600)
+##      - MEMORY_LIMIT=1G  #memory limit (default 512M)
+#      - PMA_PMADB=phpmyadmin
+#      - PMA_QUERYHISTORYDB=1
+#      - TZ=${ENV_TZ}
+#    restart: unless-stopped
+#    depends_on:
+#      - mysql
+#    ports:
+#      - "8080:80"
+#    networks:
+#      - dev_network1
+#    links:
+#      - mysql
+
+networks:
+  dev_network1:
+    driver: bridge
+
+volumes:
+  dev_mysql_data:
+  dev_postgres_data:
+  dev_redis_data:
+  dev_yacht:
+  dev_rabbitmq_data:

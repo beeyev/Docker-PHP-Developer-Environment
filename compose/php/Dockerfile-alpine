@@ -1,0 +1,105 @@
+# This version of alpine based container has not been tested!
+
+FROM php:8.0-fpm-alpine
+
+LABEL maintainer = "Alexander Tebiev"
+ENV CONTAINER_VERSION="2021.10.07"
+ENV CONTAINER_TITLE="PHP"
+ENV CONTAINER_COPYRIGHT="Beeyev"
+#Command bellow will be executed in motd via eval function, example: eval ${CONTAINER_HELLO_TEXT}
+ENV CONTAINER_HELLO_TEXT="printf \"PHP Version: \${cGreen}\${PHP_VERSION}\${cNo}\n\""
+
+ENV TERM="xterm-256color"
+ENV TZ=${TZ}
+
+
+RUN set -eux \
+    && apk add --no-cache --upgrade \
+    bash \
+    mc \
+    curl \
+    coreutils \
+    nano \
+    #cron \
+    openssh-client \
+    unzip \
+    ${PHPIZE_DEPS}
+
+
+ARG BUILD_DEPS="freetype libpng libjpeg-turbo freetype-dev libpng-dev libjpeg-turbo-dev icu-dev libzip-dev"
+RUN set -eux \
+    && apk add --no-cache --upgrade ${BUILD_DEPS} \
+    && docker-php-ext-configure gd \
+    --with-freetype \
+    --with-jpeg \
+    && docker-php-ext-configure zip \
+    && docker-php-ext-configure intl
+
+# install non-default extensions
+ADD https://github.com/mlocati/docker-php-extension-installer/releases/latest/download/install-php-extensions /usr/local/bin/
+RUN chmod +x /usr/local/bin/install-php-extensions ; \
+  install-php-extensions \
+    @composer \
+    #mongodb \
+    xdebug \
+    pdo_pgsql \
+    imagick \
+    redis \
+    opcache \
+    gd \
+    bcmath \
+    intl \
+    pdo_mysql \
+    mysqli \
+    soap \
+    exif \
+    sockets \
+    zip \
+    xsl \
+    pcntl \
+    xmlrpc
+
+
+# Blackfire installation
+# Atteention! You can not use Blackfire when one of the following extensions is also enabled: XDebug, XHProf, Pinba, Suhosin and pcov
+# Details: https://blackfire.io/docs/up-and-running/installation
+# RUN version=$(php -r "echo PHP_MAJOR_VERSION.PHP_MINOR_VERSION;") \
+# && curl -A "Docker" -o /tmp/blackfire-probe.tar.gz -D - -L -s https://blackfire.io/api/v1/releases/probe/php/linux/amd64/$version \
+# && tar zxpf /tmp/blackfire-probe.tar.gz -C /tmp \
+# && mv /tmp/blackfire-*.so $(php -r "echo ini_get('extension_dir');")/blackfire.so \
+# && printf "extension=blackfire.so\nblackfire.agent_socket=tcp://blackfire:8707\n" > $PHP_INI_DIR/conf.d/blackfire.ini
+
+# mhsendmail
+# A sendmail replacement which forwards mail to an SMTP server.
+# @see https://github.com/mailhog/mhsendmail
+ADD https://github.com/mailhog/mhsendmail/releases/download/v0.2.0/mhsendmail_linux_amd64 /usr/local/bin/mhsendmail
+RUN chmod +x /usr/local/bin/mhsendmail && sync
+
+
+# Cleanup
+RUN set -eux \
+    && apk del --no-cache ${BUILD_DEPS} ${PHPIZE_DEPS} \
+    && rm -rf /var/cache/apk/* \
+    && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* /usr/share/doc/*
+
+
+WORKDIR /var/www
+EXPOSE 9000
+
+RUN ln -sf /bin/bash /bin/sh
+
+#default username
+ARG DOCKER_USER=user
+ENV DOCKER_USER=${DOCKER_USER}
+ARG DOCKER_UID=1000
+ENV DOCKER_UID=${DOCKER_UID}
+# Create system user to run Composer and Artisan Commands
+RUN  set -eux \
+    && adduser -G www-data -u ${DOCKER_UID} -D -s /bin/bash -h /home/${DOCKER_USER} ${DOCKER_USER}
+   # && chown -R ${DOCKER_USER}.${DOCKER_USER} /var/www
+
+RUN set -eux \
+    && touch /etc/hello-msg.sh \
+    && echo '[ -f /etc/hello-msg.sh ] && . /etc/hello-msg.sh' | tee -a /root/.bashrc /home/${DOCKER_USER}/.bashrc
+
+USER ${DOCKER_USER}
